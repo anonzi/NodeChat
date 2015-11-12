@@ -15,7 +15,7 @@ var db={
 		    host: 'localhost',
 		    user: 'root',
 		    password: '',
-		    database:'match_two_development',
+		    database:'micro_weichi_development',
 		    port: 3306
 		});
 		conn.connect();

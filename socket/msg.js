@@ -1,7 +1,12 @@
 var db = require('../db/mysql'),
-    sio = require('socket.io'),
-    redis = require("redis"),
-    redis_client = redis.createClient(6379, 'localhost');
+    sio = require('socket.io');
+    // redis = require("redis"),
+var redis = require("redis"),
+    client_options = {
+        parser: "hiredis"
+};
+
+var redis_client = redis.createClient(6379, 'localhost');
 
 redis_client.on("error", function (err) {
       console.log("Error " + err);
@@ -52,26 +57,20 @@ var IO = function(server) {
 
 	io.on('connection', function(socket) {
 		console.log('a user connected.');
-		var username = "";
+		var user_id = "";
 		socket.broadcast.emit('hi', {})
 		socket.on('disconnect', function() {
 			console.log('user disconnected.');
 		});
 		socket.on('chat message', function(data) {
-                        redis_client.get('test', function (error, value) {
-                          console.info('redis client test');
-                          if (error)
-                              console.info('ERROR: ' + error);
-                          else
-                              console.info('Value: ' + value);
-                        });
-			var msg = data.msg
-			data.user = xss(username || data.user);
-			users[username] = data.user;
+			var msg = data.msg;
+			data.user_id = xss(user_id || data.user_id);
+			users[user_id] = data.user_id;
 			data.msg = xss(msg);
+      data.uname = data.uname;
 			data.time = +new Date();
 			console.log(data)
-			if (!data.to) {
+			if (!data.match_id) {
 				console.log('public')
 				sendmsg(data);
 			} else {
@@ -80,20 +79,20 @@ var IO = function(server) {
 				sendUserMsg(data);
 			}
 			insertData(data);
-			if(data.msg == quest && username !==home.name){
-				sendmsg({
-					type: 0,
-					msg: "恭喜"+username+"猜出题目。为他贺彩!!同时【"+home.name+"】画得也有模有样！"
-				});
-				homeLeave(home.name);
-			}
+	  	//	if(data.msg == quest && username !==home.name){
+	  	//		sendmsg({
+	  	//			type: 0,
+	  	//			msg: "恭喜"+username+"猜出题目。为他贺彩!!同时【"+home.name+"】画得也有模有样！"
+	  	//		});
+	  	//		homeLeave(home.name);
+	  	//	}
 		});
 		socket.on('user join', function(data) {
 			counter++;
-			username = xss(data.user);
-			users[username] = username;
-			usocket[username] = socket;
-			console.log('join:' + data.user);
+			user_id = xss(data.user_id);
+			users[user_id] = user_id;
+			usocket[user_id] = socket;
+			console.log('join:' + data.user_id);
 			data.type = 0;
 			data.users = users;
 			data.counter = counter;
@@ -102,16 +101,16 @@ var IO = function(server) {
 		});
 		socket.on('disconnect', function() {
 			console.log('disconnect')
-			if (username) {
+			if (user_id) {
 				counter--;
-				delete users[username];
-				delete usocket[username];
-				if (home.name == username) {
-					homeLeave(username);
+				delete users[user_id];
+				delete usocket[user_id];
+				if (home.name == user_id) {
+					homeLeave(user_id);
 				}
 				sendmsg({
 					type: 0,
-					msg: "用户<b>" + username + "</b>离开聊天室",
+					msg: "用户<b>" + user_id + "</b>离开聊天室",
 					counter: counter,
 					users: users
 				})
@@ -161,7 +160,9 @@ var IO = function(server) {
 		var conn = db.connect();
 		var post = {
 			msg: data.msg,
-			uname: data.user,
+			uname: data.uname,
+      user_id: data.user_id,
+      match_id: data.match_id,
 			time: data.time.toString(),
 			to: data.to
 		};
@@ -178,13 +179,46 @@ var IO = function(server) {
 	}
 
 	function sendUserMsg(data) {
-		if (data.to in usocket) {
-			console.log('================')
-			console.log('to' + data.to, data);
-			usocket[data.to].emit('to' + data.to, data);
-			usocket[data.user].emit('to' + data.user, data);
-			console.log('================')
-		}
+    var match_id = data.match_id;
+    var user_ids = [];
+    redis_client.smembers('MATCH_SET'+3, function (error, value) {
+      console.info('redis client test 1');
+      if (error) {
+          console.info('ERROR: ' + error);
+      }else {
+          console.info(value);
+          if (value) {
+             user_ids = user_ids.concat(value);
+          }
+      } 
+    });
+    console.info(user_ids);
+    redis_client.get('test', function (error, value) {
+      console.info('redis client test 2');
+      if (error)
+          console.info('ERROR: ' + error);
+      else
+          console.info('Value: ' + value);
+    });
+		var conn = db.connect();
+  	var query = conn.query('select * from matches  where id="'+match_id+'" LIMIT 1', function(err, result) {
+    		console.log('err:' + err);
+    		console.log(result)
+        var match = result[0];
+        user_ids.push(match.blackuser_id);
+        user_ids.push(match.whiteuser_id);
+        console.info("user ids");
+        console.info(user_ids);
+        for (var i=user_ids.length-1; i>=0; i--) {
+          if (user_ids[i] in usocket) {
+            console.log('================')
+            console.log('to' + user_ids[i], data);
+            usocket[user_ids[i]].emit('to' + user_ids[i], data);
+            // usocket[data.user_id].emit('to' + data.user_id, data);
+            console.log('================')
+          }
+        }
+  	});
 	}
 	/*
 	io.emit('some event', {

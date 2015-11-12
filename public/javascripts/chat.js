@@ -43,7 +43,8 @@ $(function() {
         //私聊
         // console.log('to'+user)
         socket.on('to' + user, function(data) {
-            //console.log(data);
+            console.log("收到消息时:")
+            console.log(data);
             formatMsg(data);
         })
     });
